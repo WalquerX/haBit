@@ -83,7 +83,7 @@ POST /api/nft/view
 
 ## Development
 
-```bash
+bash
 # Run tests
 make test
 
@@ -92,4 +92,10 @@ make contract
 
 # Clean build artifacts
 make clean
+```
+
+## Example result
+
+```
+cargo run -- view --utxo 95ba0ec753501d3378e10f1516e161d8021e09b7b47a5c06470755224a10d812
 ```

@@ -453,7 +453,6 @@ fn create_nft_works() {
     println!("\n TEST PASSED: Complete unsigned/broadcast flow successful!");
 }
 
-#[test]
 #[serial]
 fn update_nft_works() {
     println!("\n Testing NFT Update with Unsigned/Broadcast Flow\n");
@@ -485,7 +484,7 @@ fn update_nft_works() {
     println!("\n PREREQUISITE: Creating initial NFT...");
 
     let habit_name = "Update NFT Works Test".to_string();
-    create_nft(&btc_client, habit_name.clone()).expect("create initial NFT");
+    create_nft(&btc_client, habit_name.clone()).expect("create NFT");
 
     // Mine block to confirm THE NFT TRANSACTION
     let mining_addr = node
@@ -806,9 +805,9 @@ fn cli_create_nft_works() {
     println!("   Sessions: {}", sessions);
 }
 
-#[test]
+#[tokio::test] 
 #[serial]
-fn cli_update_nft_works() {
+async fn cli_update_nft_works() {
     println!("\n🧪 Testing CLI: update command\n");
 
     let node = get_or_init_bitcoin_node();
@@ -878,7 +877,7 @@ fn cli_update_nft_works() {
 
     // Update via CLI
     println!("🔄 Updating NFT via CLI...");
-    let result = update_nft(&btc_client, nft_utxo_id.clone());
+    let result = update_nft(&btc_client, nft_utxo_id.clone()).await;
 
     assert!(
         result.is_ok(),

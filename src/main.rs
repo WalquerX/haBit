@@ -233,13 +233,15 @@ async fn run_server() -> anyhow::Result<()> {
 }
 
 // CLI
-fn run_cli(command: Commands) -> anyhow::Result<()> {
+async fn run_cli(command: Commands) -> anyhow::Result<()> {
     let btc = connect_bitcoin()?;
 
     match command {
         Commands::Create { habit } => create_nft(&btc, habit),
-        Commands::Update { utxo } => update_nft(&btc, utxo),
-        Commands::View { utxo } => view_nft(&btc, utxo), // ← Pass btc
+        Commands::Update { utxo } => {
+            update_nft(&btc, utxo).await
+        },
+        Commands::View { utxo } => view_nft(&btc, utxo),
     }
 }
 
@@ -250,7 +252,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(cmd) => {
             // CLI mode
-            run_cli(cmd)
+            run_cli(cmd).await
         }
         None => {
             // Server mode
