@@ -83,7 +83,7 @@ POST /api/nft/view
 
 ## Development
 
-bash
+```bash
 # Run tests
 make test
 
@@ -103,3 +103,5 @@ cargo run -- view --utxo 95ba0ec753501d3378e10f1516e161d8021e09b7b47a5c064707552
 ## nft 1 session
 charms tx show-spell --tx $(bitcoin-cli -testnet4 getrawtransaction 6c513b09b4401acd9cc9c0da6f9f2d2b0e82fbadd786bfda9a9041454824bb07) --mock
 ```
+
+## [Front-end](https://github.com/DuwalVC/habitChain)
