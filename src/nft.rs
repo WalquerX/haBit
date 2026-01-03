@@ -1,8 +1,12 @@
-// src/nft.rs
+//! NFT operations for the Habit Tracker
+//!
+//! This module handles all NFT-related operations including creation, updates,
+//! and metadata extraction using the Charms protocol.
 use base64::Engine;
 use bitcoincore_rpc::bitcoin;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use charms_client::tx::Tx;
+use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -11,38 +15,79 @@ use std::process::Command;
 use std::str::FromStr;
 use tempfile::NamedTempFile;
 
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// NFT UTXO value in satoshis (1000 sats = 0.00001 BTC)
+const NFT_AMOUNT_SATS: u64 = 1000;
+
+/// Minimum funding required for operations (covers NFT + fees)
+const MIN_FUNDING_SATS: u64 = 2000;
+
+/// Default fee rate for transactions (sats/vB)
+const DEFAULT_FEE_RATE: f64 = 2.0;
+
+/// Badge milestones (sessions required for each badge)
+const BADGE_MILESTONES: &[(u64, &str)] = &[
+    (1, "First Strike"),
+    (7, "Week Warrior"),
+    (21, "Path Beginner"),
+    (30, "Moon Master"),
+    (66, "Habit Forged"),
+    (90, "Discipline Disciple"),
+    (100, "Century Samurai"),
+    (180, "Half-Year Hero"),
+    (365, "Year of the Way"),
+];
+
+// ============================================================================
+// Public Response Types
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct UnsignedNftResponse {
+    pub commit_tx_hex: String,
+    pub spell_tx_hex: String,
+    pub commit_txid: String, // For reference
+    pub spell_inputs_info: Vec<SigningInputInfo>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct UnsignedUpdateResponse {
+    pub commit_tx_hex: String,
+    pub spell_tx_hex: String,
+    pub commit_txid: String,
+    pub spell_inputs_info: Vec<SigningInputInfo>,
+    pub current_sessions: u64,
+    pub new_sessions: u64,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SigningInputInfo {
+    pub tx_index: usize,    // 0 = commit, 1 = spell
+    pub input_index: usize, // Which input in the tx
+    pub prev_script_hex: String,
+    pub amount_sats: u64,
+}
+
+#[derive(Serialize)]
+pub struct BroadcastNftResponse {
+    pub commit_txid: String,
+    pub spell_txid: String,
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/// Get badges for a given session count
 fn get_badges_for_sessions(sessions: u64) -> Vec<String> {
-    let mut badges = Vec::new();
-
-    if sessions >= 1 {
-        badges.push("First Strike".to_string());
-    }
-    if sessions >= 7 {
-        badges.push("Week Warrior".to_string());
-    }
-    if sessions >= 21 {
-        badges.push("Path Beginner".to_string());
-    }
-    if sessions >= 30 {
-        badges.push("Moon Master".to_string());
-    }
-    if sessions >= 66 {
-        badges.push("Habit Forged".to_string());
-    }
-    if sessions >= 90 {
-        badges.push("Discipline Disciple".to_string());
-    }
-    if sessions >= 100 {
-        badges.push("Century Samurai".to_string());
-    }
-    if sessions >= 180 {
-        badges.push("Half-Year Hero".to_string());
-    }
-    if sessions >= 365 {
-        badges.push("Year of the Way".to_string());
-    }
-
-    badges
+    BADGE_MILESTONES
+        .iter()
+        .filter(|(threshold, _)| sessions >= *threshold)
+        .map(|(_, badge)| badge.to_string())
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,28 +101,30 @@ impl ProverBackend {
         let info = btc.get_blockchain_info()?;
         match info.chain {
             bitcoincore_rpc::bitcoin::Network::Regtest => {
-                println!("   🔧 Detected regtest - using CLI mock mode");
+                println!("Detected regtest - using CLI mock mode");
                 Ok(ProverBackend::CliMock)
             }
             _ => {
-                println!("   🌐 Detected {} - using HTTP API", info.chain);
+                println!("Detected {} - using HTTP API", info.chain);
                 Ok(ProverBackend::_Http)
             }
         }
     }
 }
 
+/// Get the path to the compiled contract WASM
 pub fn get_contract_path() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts/habit-tracker.wasm")
 }
 
+/// Get the path to the contract verification key
 pub fn get_contract_vk_path() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts/habit-tracker.vk")
 }
 
+/// Load contract WASM and verification key
 pub fn load_contract() -> anyhow::Result<(String, String)> {
     let contract_path = get_contract_path();
-
     if !contract_path.exists() {
         anyhow::bail!(
             "Contract WASM not found at {:?}\n\
@@ -100,11 +147,12 @@ pub fn load_contract() -> anyhow::Result<(String, String)> {
 
     let binary_bytes = fs::read(&contract_path)?;
     let binary_base64 = base64::engine::general_purpose::STANDARD.encode(&binary_bytes);
-    // let vk = "328139bcb52b17730b8ed5f6658ff6329a51f2ba61f3cdccdb89b8443ab97486".to_string();
 
+    log::debug!("Loaded contract from {:?}", contract_path);
     Ok((vk, binary_base64))
 }
 
+/// Connect to Bitcoin Core RPC
 pub fn connect_bitcoin() -> anyhow::Result<Client> {
     let cookie_path = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("No home dir"))?
@@ -114,9 +162,12 @@ pub fn connect_bitcoin() -> anyhow::Result<Client> {
         "http://127.0.0.1:48332/wallet/test",
         Auth::CookieFile(cookie_path),
     )?;
+
+    log::debug!("Connected to Bitcoin Core RPC");
     Ok(btc)
 }
 
+/// Get a suitable funding UTXO, excluding specified UTXOs
 pub fn get_funding_utxo(
     btc: &Client,
     exclude_utxo: Option<&str>,
@@ -140,6 +191,7 @@ pub fn get_funding_utxo(
             .require_network(network)?
             .to_string();
 
+        log::debug!("Found funding UTXO: {}:{}", funding.txid, funding.vout);
         Ok((
             format!("{}:{}", funding.txid, funding.vout),
             funding.amount.to_sat(),
@@ -159,10 +211,23 @@ pub fn get_funding_utxo(
     }
 }
 
-pub fn extract_nft_metadata(btc: &Client, txid: &str) -> anyhow::Result<(String, u64, String)> {
-    println!("🔍 Extracting NFT metadata from {}...", txid);
+/// Generate a unique app ID for this spell
+fn generate_app_id(vk: &str) -> String {
+    let identity_input = format!("habit_tracker_{}", chrono::Utc::now().timestamp());
+    let mut hasher = Sha256::new();
+    hasher.update(identity_input.as_bytes());
+    let identity_hash = hasher.finalize();
+    let identity_hex = hex::encode(identity_hash);
+    format!("n/{}/{}", identity_hex, vk)
+}
 
-    // Use the RPC client instead of bitcoin-cli
+// ============================================================================
+// NFT Metadata Operations
+// ============================================================================
+
+pub fn extract_nft_metadata(btc: &Client, txid: &str) -> anyhow::Result<(String, u64, String)> {
+    log::debug!("Extracting NFT metadata from {}", txid);
+
     let tx_hex = btc.get_raw_transaction_hex(&bitcoin::Txid::from_str(txid)?, None)?;
 
     let spell_output = Command::new("charms")
@@ -200,62 +265,19 @@ pub fn extract_nft_metadata(btc: &Client, txid: &str) -> anyhow::Result<(String,
         .ok_or_else(|| anyhow::anyhow!("No owner found in NFT"))?
         .to_string();
 
-    println!("   📝 Habit: {}", habit_name);
-    println!("   📊 Sessions: {}", sessions);
-    println!("   👤 Owner: {}", owner);
+    log::info!(
+        "NFT metadata - Habit: '{}', Sessions: {}, Owner: {}",
+        habit_name,
+        sessions,
+        &owner[..12]
+    );
 
     Ok((habit_name, sessions, owner))
 }
 
-pub fn sign_and_broadcast_create(
-    btc: &Client,
-    bitcoin_txs: Vec<bitcoin::Transaction>,
-) -> anyhow::Result<serde_json::Value> {
-    println!("\n📝 Signing transactions...");
-
-    let signed_commit = btc.sign_raw_transaction_with_wallet(&bitcoin_txs[0], None, None)?;
-    if !signed_commit.complete {
-        anyhow::bail!("Failed to sign commit transaction");
-    }
-    println!("   ✓ Commit tx signed");
-
-    let commit_tx = &bitcoin_txs[0];
-    let commit_script_pubkey = commit_tx.output[0].script_pubkey.clone();
-    let commit_amount_btc = commit_tx.output[0].value.to_btc();
-
-    let prevout = bitcoincore_rpc::json::SignRawTransactionInput {
-        txid: commit_tx.compute_txid(),
-        vout: 0,
-        script_pub_key: commit_script_pubkey,
-        redeem_script: None,
-        amount: Some(bitcoin::Amount::from_btc(commit_amount_btc)?),
-    };
-
-    let signed_spell =
-        btc.sign_raw_transaction_with_wallet(&bitcoin_txs[1], Some(&[prevout]), None)?;
-
-    if !signed_spell.complete {
-        anyhow::bail!("Failed to sign spell transaction");
-    }
-    println!("   ✓ Spell tx signed");
-
-    println!("\n📡 Broadcasting transactions...");
-
-    let commit_txid = btc.send_raw_transaction(&signed_commit.hex)?;
-    println!("   ✓ Commit tx broadcast: {}", commit_txid);
-
-    let spell_txid = btc.send_raw_transaction(&signed_spell.hex)?;
-    println!("   ✓ Spell tx broadcast: {}", spell_txid);
-
-    let result = json!({
-        "tx-results": [
-            {"txid": commit_txid.to_string()},
-            {"txid": spell_txid.to_string()},
-        ]
-    });
-
-    Ok(result)
-}
+// ============================================================================
+// Prover Integration
+// ============================================================================
 
 pub fn prove_with_cli(
     spell: &serde_json::Value,
@@ -266,10 +288,12 @@ pub fn prove_with_cli(
     change_address: &str,
     fee_rate: f64,
 ) -> anyhow::Result<Vec<Tx>> {
+    // Write spell to temporary file
     let mut spell_file = NamedTempFile::new()?;
     spell_file.write_all(serde_json::to_string_pretty(spell)?.as_bytes())?;
     let spell_path = spell_file.path().to_str().unwrap();
 
+    // Locate charms binary
     let charms_bin = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("No home dir"))?
         .join("BOS/charms/target/release/charms");
@@ -283,7 +307,7 @@ pub fn prove_with_cli(
 
     // Convert contract_path to absolute path
     let absolute_contract_path = std::fs::canonicalize(contract_path)?;
-    println!("   📦 Using contract: {:?}", absolute_contract_path);
+    log::debug!("Using contract: {:?}", absolute_contract_path);
 
     let mut cmd = Command::new(&charms_bin);
     cmd.arg("spell")
@@ -308,6 +332,7 @@ pub fn prove_with_cli(
         cmd.arg("--prev-txs").arg(prev_txs.join(","));
     }
 
+    log::debug!("Calling prover...");
     let output = cmd.output()?;
 
     if !output.status.success() {
@@ -319,15 +344,19 @@ pub fn prove_with_cli(
     let txs: Vec<Tx> = serde_json::from_str(&stdout)
         .map_err(|e| anyhow::anyhow!("Failed to parse CLI output: {}", e))?;
 
+    log::debug!("Prover generated {} transactions", txs.len());
     Ok(txs)
 }
 
-pub fn create_nft(btc: &Client, habit_name: String) -> anyhow::Result<String> {
-    println!("🗡️  Creating Habit Tracker NFT\n");
+// ============================================================================
+// NFT Creation
+// ============================================================================
 
-    // let backend = ProverBackend::auto_detect(btc)?;
+pub fn create_nft(btc: &Client, habit_name: String) -> anyhow::Result<String> {
+    log::debug!("Creating Habit Tracker NFT\n");
+
     let (vk, _binary_base64) = load_contract()?;
-    // let network = btc.get_blockchain_info()?.chain;
+
     let utxos = btc.list_unspent(None, None, None, None, None)?;
     let funding = utxos.first().expect("No UTXOs!");
 
@@ -362,11 +391,11 @@ pub fn create_nft(btc: &Client, habit_name: String) -> anyhow::Result<String> {
                     "created_at": chrono::Utc::now().timestamp(),
                 }
             },
-            "sats": 1000
+            "sats": NFT_AMOUNT_SATS
         }]
     });
 
-    println!("\n🔮 Calling prover...");
+    log::info!("\n Calling prover...");
 
     let contract_path = get_contract_path();
 
@@ -377,10 +406,10 @@ pub fn create_nft(btc: &Client, habit_name: String) -> anyhow::Result<String> {
         &format!("{}:{}", funding.txid, funding.vout),
         funding.amount.to_sat(),
         &addr_str,
-        2.0,
+        DEFAULT_FEE_RATE,
     )?;
 
-    println!("   ✓ Got transactions from prover");
+    log::info!(" Got transactions from prover");
 
     let bitcoin_txs: Vec<bitcoin::Transaction> = txs
         .iter()
@@ -390,11 +419,11 @@ pub fn create_nft(btc: &Client, habit_name: String) -> anyhow::Result<String> {
         })
         .collect();
 
-    println!(
+    log::debug!(
         "   Commit tx: {} bytes",
         bitcoin::consensus::serialize(&bitcoin_txs[0]).len()
     );
-    println!(
+    log::debug!(
         "   Spell tx: {} bytes",
         bitcoin::consensus::serialize(&bitcoin_txs[1]).len()
     );
@@ -409,17 +438,17 @@ pub fn create_nft(btc: &Client, habit_name: String) -> anyhow::Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Failed to get spell txid from result"))?;
 
-    println!("\n✅ NFT Created!");
-    println!("   UTXO: {}:0", spell_txid);
-    println!("   Sessions: 0");
-    println!("\nTo increment:");
-    println!("   cargo run -- update --utxo {}:0", spell_txid);
+    log::debug!("\n NFT Created!");
+    log::debug!("   UTXO: {}:0", spell_txid);
+    log::debug!("   Sessions: 0");
+    log::debug!("\nTo increment:");
+    log::debug!("   cargo run -- update --utxo {}:0", spell_txid);
 
     Ok(spell_txid.to_string())
 }
 
 pub async fn update_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
-    println!("🔄 Updating Habit Tracker NFT\n");
+    log::debug!("Updating Habit Tracker NFT\n");
 
     // let backend = ProverBackend::auto_detect(btc)?;
     let backend = ProverBackend::CliMock;
@@ -431,7 +460,7 @@ pub async fn update_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
 
     let (habit_name, current_sessions, _) = extract_nft_metadata(btc, prev_txid)?;
 
-    println!("\n🔍 Fetching previous transaction...");
+    log::debug!("\n Fetching previous transaction...");
 
     let prev_tx_raw = btc.get_raw_transaction_hex(&bitcoin::Txid::from_str(prev_txid)?, None)?;
 
@@ -471,11 +500,11 @@ pub async fn update_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
                     "badges": get_badges_for_sessions(current_sessions + 1),
                 }
             },
-            "sats": 1000
+            "sats": NFT_AMOUNT_SATS
         }]
     });
 
-    println!("\n🔮 Calling prover...");
+    log::debug!("\n Calling prover...");
 
     // Auto-detect which prover backend to use
     let txs = match backend {
@@ -491,7 +520,7 @@ pub async fn update_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
                 &funding_utxo,
                 funding_value,
                 &addr_str,
-                2.0,
+                DEFAULT_FEE_RATE,
             )?
         }
         ProverBackend::_Http => {
@@ -546,121 +575,18 @@ pub async fn update_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
         .and_then(|r| r.get("txid"))
         .and_then(|v| v.as_str())
     {
-        println!("\n✅ NFT Updated!");
+        println!("\n NFT Updated!");
         println!("   New UTXO: {}:0", spell_txid);
         println!(
             "   Sessions: {} → {}",
             current_sessions,
             current_sessions + 1
         );
-        println!("\nTo increment again:");
+        println!("\n To increment again:");
         println!("   cargo run -- update --utxo {}:0", spell_txid);
     }
 
     Ok(())
-}
-
-pub fn sign_and_broadcast_update(
-    btc: &Client,
-    bitcoin_txs: Vec<bitcoin::Transaction>,
-    nft_txid: &str,
-    nft_utxo: &str,
-) -> anyhow::Result<serde_json::Value> {
-    println!("\n📝 Signing transactions...");
-
-    // Sign commit transaction
-    let signed_commit = btc.sign_raw_transaction_with_wallet(&bitcoin_txs[0], None, None)?;
-    if !signed_commit.complete {
-        anyhow::bail!("Failed to sign commit transaction");
-    }
-    println!("   ✓ Commit tx signed");
-
-    // Get NFT transaction details for signing
-    let nft_tx_raw = btc.get_raw_transaction(&bitcoin::Txid::from_str(nft_txid)?, None)?;
-    let nft_vout: u32 = nft_utxo.split(':').nth(1).unwrap().parse()?;
-
-    // Prepare prevouts for spell transaction (needs BOTH inputs)
-    let nft_prevout = bitcoincore_rpc::json::SignRawTransactionInput {
-        txid: bitcoin::Txid::from_str(nft_txid)?,
-        vout: nft_vout,
-        script_pub_key: nft_tx_raw.output[nft_vout as usize].script_pubkey.clone(),
-        redeem_script: None,
-        amount: Some(bitcoin::Amount::from_sat(1000)),
-    };
-
-    let commit_tx = &bitcoin_txs[0];
-    let commit_prevout = bitcoincore_rpc::json::SignRawTransactionInput {
-        txid: commit_tx.compute_txid(),
-        vout: 0,
-        script_pub_key: commit_tx.output[0].script_pubkey.clone(),
-        redeem_script: None,
-        amount: Some(commit_tx.output[0].value),
-    };
-
-    // Sign spell transaction with both prevouts
-    let signed_spell = btc.sign_raw_transaction_with_wallet(
-        &bitcoin_txs[1],
-        Some(&[nft_prevout, commit_prevout]),
-        None,
-    )?;
-
-    if !signed_spell.complete {
-        let errors = signed_spell.errors.unwrap_or_default();
-        for err in &errors {
-            eprintln!("   Signing error: {:?}", err);
-        }
-        anyhow::bail!("Failed to sign spell transaction. Errors: {:?}", errors);
-    }
-    println!("   ✓ Spell tx signed");
-
-    // Detect network and choose broadcast method
-    let network = btc.get_blockchain_info()?.chain;
-
-    match network {
-        bitcoincore_rpc::bitcoin::Network::Regtest => {
-            // Regtest: use submitpackage
-            println!("\n📡 Broadcasting package (regtest)...");
-
-            let result = btc.call::<serde_json::Value>(
-                "submitpackage",
-                &[serde_json::json!([
-                    hex::encode(&signed_commit.hex),
-                    hex::encode(&signed_spell.hex),
-                ])],
-            )?;
-
-            if let Some(results) = result.get("tx-results").and_then(|v| v.as_array()) {
-                for (i, r) in results.iter().enumerate() {
-                    if let Some(txid) = r.get("txid") {
-                        let tx_type = if i == 0 { "Commit" } else { "Spell" };
-                        println!("   ✓ {} tx: {}", tx_type, txid.as_str().unwrap());
-                    }
-                    if let Some(err) = r.get("error") {
-                        anyhow::bail!("Package tx {} rejected: {}", i, err);
-                    }
-                }
-            }
-
-            Ok(result)
-        }
-        _ => {
-            // Testnet/Mainnet: broadcast sequentially
-            println!("\n📡 Broadcasting transactions sequentially...");
-
-            let commit_txid = btc.send_raw_transaction(&signed_commit.hex)?;
-            println!("   ✓ Commit tx: {}", commit_txid);
-
-            let spell_txid = btc.send_raw_transaction(&signed_spell.hex)?;
-            println!("   ✓ Spell tx: {}", spell_txid);
-
-            Ok(json!({
-                "tx-results": [
-                    {"txid": commit_txid.to_string()},
-                    {"txid": spell_txid.to_string()},
-                ]
-            }))
-        }
-    }
 }
 
 pub fn update_nft_unsigned(
@@ -670,21 +596,19 @@ pub fn update_nft_unsigned(
     funding_utxo: String,
     funding_value: u64,
 ) -> anyhow::Result<UnsignedUpdateResponse> {
-    println!("🔄 Building unsigned NFT update transactions\n");
+    log::info!("Building unsigned NFT creation transactions");
 
     let (vk, _binary_base64) = load_contract()?;
 
-    println!("📍 User address: {}", user_address);
-    println!("💰 Funding UTXO: {} ({} sats)", funding_utxo, funding_value);
-    println!("🎯 NFT UTXO: {}", nft_utxo);
+    log::debug!(" User address: {}", user_address);
+    log::debug!(" Funding UTXO: {} ({} sats)", funding_utxo, funding_value);
+    log::debug!(" NFT UTXO: {}", nft_utxo);
 
-    // Validate funds
-    let min_required = 2000;
-    if funding_value < min_required {
+    if funding_value < MIN_FUNDING_SATS {
         anyhow::bail!(
             "Insufficient funds. Have {} sats, need at least {} sats",
             funding_value,
-            min_required
+            MIN_FUNDING_SATS
         );
     }
 
@@ -694,18 +618,12 @@ pub fn update_nft_unsigned(
 
     let (habit_name, current_sessions, _) = extract_nft_metadata(btc, prev_txid)?;
 
-    println!("📊 Current state: {} sessions", current_sessions);
-    println!("➡️  New state: {} sessions", current_sessions + 1);
+    println!(" Current state: {} sessions", current_sessions);
+    println!("  New state: {} sessions", current_sessions + 1);
 
     // Get previous transaction hex using the client
     let prev_tx_raw = btc.get_raw_transaction_hex(&bitcoin::Txid::from_str(prev_txid)?, None)?;
-
-    let identity_input = format!("habit_tracker_{}", chrono::Utc::now().timestamp());
-    let mut hasher = Sha256::new();
-    hasher.update(identity_input.as_bytes());
-    let identity_hash = hasher.finalize();
-    let identity_hex = hex::encode(identity_hash);
-    let app_id = format!("n/{}/{}", identity_hex, vk);
+    let app_id = generate_app_id(&vk);
 
     let spell = json!({
         "version": 8,
@@ -736,11 +654,11 @@ pub fn update_nft_unsigned(
                     "badges": get_badges_for_sessions(current_sessions + 1),
                 }
             },
-            "sats": 1000
+            "sats": NFT_AMOUNT_SATS
         }]
     });
 
-    println!("\n🔮 Calling prover...");
+    log::debug!("\n🔮 Calling prover...");
 
     let contract_path = get_contract_path();
 
@@ -753,10 +671,10 @@ pub fn update_nft_unsigned(
         &funding_utxo,
         funding_value,
         &user_address,
-        2.0,
+        DEFAULT_FEE_RATE,
     )?;
 
-    println!("   ✓ Got transactions from prover");
+    log::debug!("   ✓ Got transactions from prover");
 
     let bitcoin_txs: Vec<bitcoin::Transaction> = txs
         .iter()
@@ -806,7 +724,7 @@ pub fn update_nft_unsigned(
 }
 
 pub fn view_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
-    println!("👀 Viewing NFT: {}\n", nft_utxo);
+    log::debug!(" Viewing NFT: {}\n", nft_utxo);
 
     let parts: Vec<&str> = nft_utxo.split(':').collect();
     let txid = parts[0];
@@ -814,47 +732,13 @@ pub fn view_nft(btc: &Client, nft_utxo: String) -> anyhow::Result<()> {
 
     let (habit_name, sessions, _) = extract_nft_metadata(btc, txid)?;
 
-    println!("\n📊 NFT Details:");
+    println!("\n NFT Details:");
     println!("   UTXO: {}", nft_utxo);
     println!("   Habit: {}", habit_name);
     println!("   Total Sessions: {}", sessions);
     println!("   Output: {}", vout);
 
     Ok(())
-}
-
-use serde::Serialize;
-
-#[derive(Serialize)]
-pub struct UnsignedNftResponse {
-    pub commit_tx_hex: String,
-    pub spell_tx_hex: String,
-    pub commit_txid: String, // For reference
-    pub spell_inputs_info: Vec<SigningInputInfo>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct UnsignedUpdateResponse {
-    pub commit_tx_hex: String,
-    pub spell_tx_hex: String,
-    pub commit_txid: String,
-    pub spell_inputs_info: Vec<SigningInputInfo>,
-    pub current_sessions: u64,
-    pub new_sessions: u64,
-}
-
-#[derive(Serialize, Debug)]
-pub struct SigningInputInfo {
-    pub tx_index: usize,    // 0 = commit, 1 = spell
-    pub input_index: usize, // Which input in the tx
-    pub prev_script_hex: String,
-    pub amount_sats: u64,
-}
-
-#[derive(Serialize)]
-pub struct BroadcastNftResponse {
-    pub commit_txid: String,
-    pub spell_txid: String,
 }
 
 // Function 1: Build unsigned transactions
@@ -864,13 +748,13 @@ pub fn create_nft_unsigned(
     funding_utxo: String,
     funding_value: u64,
 ) -> anyhow::Result<UnsignedNftResponse> {
-    println!("🗡️  Building unsigned NFT transactions\n");
+    log::debug!("🗡️  Building unsigned NFT transactions\n");
 
     // No need for btc client here - we're not signing or broadcasting
     let (vk, _binary_base64) = load_contract()?;
 
-    println!("📍 User address: {}", user_address);
-    println!("💰 Funding UTXO: {} ({} sats)", funding_utxo, funding_value);
+    log::debug!(" User address: {}", user_address);
+    log::debug!(" Funding UTXO: {} ({} sats)", funding_utxo, funding_value);
 
     // Validate funds
     let min_required = 2000;
@@ -906,11 +790,11 @@ pub fn create_nft_unsigned(
                     "badges": get_badges_for_sessions(0),
                 }
             },
-            "sats": 1000
+            "sats": NFT_AMOUNT_SATS
         }]
     });
 
-    println!("\n🔮 Calling prover...");
+    log::debug!("\n Calling prover...");
 
     let contract_path = get_contract_path();
 
@@ -921,10 +805,10 @@ pub fn create_nft_unsigned(
         &funding_utxo,
         funding_value,
         &user_address,
-        2.0,
+        DEFAULT_FEE_RATE,
     )?;
 
-    println!("   ✓ Got transactions from prover");
+    log::debug!("   ✓ Got transactions from prover");
 
     // Convert to bitcoin::Transaction objects
     let bitcoin_txs: Vec<bitcoin::Transaction> = txs
@@ -970,7 +854,7 @@ pub fn broadcast_nft(
     signed_commit_hex: String,
     signed_spell_hex: String,
 ) -> anyhow::Result<BroadcastNftResponse> {
-    println!("\n📡 Broadcasting NFT transactions...");
+    log::debug!("\n Broadcasting NFT transactions...");
 
     // Decode hex to bytes, then deserialize to Transaction
     let commit_bytes = hex::decode(&signed_commit_hex)?;
@@ -981,14 +865,163 @@ pub fn broadcast_nft(
 
     // Broadcast commit first
     let commit_txid = btc.send_raw_transaction(&commit_tx)?;
-    println!("   ✓ Commit tx: {}", commit_txid);
+    log::debug!("Commit tx: {}", commit_txid);
 
     // Broadcast spell
     let spell_txid = btc.send_raw_transaction(&spell_tx)?;
-    println!("   ✓ Spell tx: {}", spell_txid);
+    log::debug!("Spell tx: {}", spell_txid);
 
     Ok(BroadcastNftResponse {
         commit_txid: commit_txid.to_string(),
         spell_txid: spell_txid.to_string(),
     })
+}
+
+// ============================================================================
+// Transaction Signing & Broadcasting
+// ============================================================================
+
+pub fn sign_and_broadcast_create(
+    btc: &Client,
+    bitcoin_txs: Vec<bitcoin::Transaction>,
+) -> anyhow::Result<serde_json::Value> {
+    log::debug!("Signing transactions");
+
+    let signed_commit = btc.sign_raw_transaction_with_wallet(&bitcoin_txs[0], None, None)?;
+    if !signed_commit.complete {
+        anyhow::bail!("Failed to sign commit transaction");
+    }
+
+    let commit_tx = &bitcoin_txs[0];
+    let commit_script_pubkey = commit_tx.output[0].script_pubkey.clone();
+    let commit_amount_btc = commit_tx.output[0].value.to_btc();
+
+    let prevout = bitcoincore_rpc::json::SignRawTransactionInput {
+        txid: commit_tx.compute_txid(),
+        vout: 0,
+        script_pub_key: commit_script_pubkey,
+        redeem_script: None,
+        amount: Some(bitcoin::Amount::from_btc(commit_amount_btc)?),
+    };
+
+    let signed_spell =
+        btc.sign_raw_transaction_with_wallet(&bitcoin_txs[1], Some(&[prevout]), None)?;
+
+    if !signed_spell.complete {
+        anyhow::bail!("Failed to sign spell transaction");
+    }
+    log::debug!("Broadcasting transactions");
+
+    let commit_txid = btc.send_raw_transaction(&signed_commit.hex)?;
+    let spell_txid = btc.send_raw_transaction(&signed_spell.hex)?;
+
+    log::info!("NFT created - Spell TXID: {}", spell_txid);
+
+    let result = json!({
+        "tx-results": [
+            {"txid": commit_txid.to_string()},
+            {"txid": spell_txid.to_string()},
+        ]
+    });
+
+    Ok(result)
+}
+
+pub fn sign_and_broadcast_update(
+    btc: &Client,
+    bitcoin_txs: Vec<bitcoin::Transaction>,
+    nft_txid: &str,
+    nft_utxo: &str,
+) -> anyhow::Result<serde_json::Value> {
+    log::debug!("Signing update transactions");
+
+    // Sign commit transaction
+    let signed_commit = btc.sign_raw_transaction_with_wallet(&bitcoin_txs[0], None, None)?;
+    if !signed_commit.complete {
+        anyhow::bail!("Failed to sign commit transaction");
+    }
+
+    // Get NFT transaction details for signing
+    let nft_tx_raw = btc.get_raw_transaction(&bitcoin::Txid::from_str(nft_txid)?, None)?;
+    let nft_vout: u32 = nft_utxo.split(':').nth(1).unwrap().parse()?;
+
+    // Prepare prevouts for spell transaction (needs BOTH inputs)
+    let nft_prevout = bitcoincore_rpc::json::SignRawTransactionInput {
+        txid: bitcoin::Txid::from_str(nft_txid)?,
+        vout: nft_vout,
+        script_pub_key: nft_tx_raw.output[nft_vout as usize].script_pubkey.clone(),
+        redeem_script: None,
+        amount: Some(bitcoin::Amount::from_sat(1000)),
+    };
+
+    let commit_tx = &bitcoin_txs[0];
+    let commit_prevout = bitcoincore_rpc::json::SignRawTransactionInput {
+        txid: commit_tx.compute_txid(),
+        vout: 0,
+        script_pub_key: commit_tx.output[0].script_pubkey.clone(),
+        redeem_script: None,
+        amount: Some(commit_tx.output[0].value),
+    };
+
+    // Sign spell transaction with both prevouts
+    let signed_spell = btc.sign_raw_transaction_with_wallet(
+        &bitcoin_txs[1],
+        Some(&[nft_prevout, commit_prevout]),
+        None,
+    )?;
+
+    if !signed_spell.complete {
+        let errors = signed_spell.errors.unwrap_or_default();
+        for err in &errors {
+            eprintln!("   Signing error: {:?}", err);
+        }
+        anyhow::bail!("Failed to sign spell transaction. Errors: {:?}", errors);
+    }
+    println!("   ✓ Spell tx signed");
+
+    // Detect network and choose broadcast method
+    let network = btc.get_blockchain_info()?.chain;
+
+    match network {
+        bitcoincore_rpc::bitcoin::Network::Regtest => {
+            log::debug!("Broadcasting via submitpackage (regtest)");
+
+            let result = btc.call::<serde_json::Value>(
+                "submitpackage",
+                &[serde_json::json!([
+                    hex::encode(&signed_commit.hex),
+                    hex::encode(&signed_spell.hex),
+                ])],
+            )?;
+
+            if let Some(results) = result.get("tx-results").and_then(|v| v.as_array()) {
+                for (i, r) in results.iter().enumerate() {
+                    if let Some(txid) = r.get("txid") {
+                        let tx_type = if i == 0 { "Commit" } else { "Spell" };
+                        println!("   ✓ {} tx: {}", tx_type, txid.as_str().unwrap());
+                    }
+                    if let Some(err) = r.get("error") {
+                        anyhow::bail!("Package tx {} rejected: {}", i, err);
+                    }
+                }
+            }
+
+            Ok(result)
+        }
+        _ => {
+            log::debug!("Broadcasting transactions sequentially");
+
+            let commit_txid = btc.send_raw_transaction(&signed_commit.hex)?;
+            let spell_txid = btc.send_raw_transaction(&signed_spell.hex)?;
+
+            log::info!("NFT updated - Spell TXID: {}", spell_txid);
+
+            Ok(json!({
+                "tx-results": [
+                    {"txid": commit_txid.to_string()},
+                    {"txid": spell_txid.to_string()},
+                ]
+            }))
+        }
+    }
 }

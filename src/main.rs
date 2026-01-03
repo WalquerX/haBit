@@ -1,4 +1,8 @@
-// src/main.rs
+//! Habit Tracker NFT Manager
+//!
+//! A Bitcoin NFT application for tracking habits with on-chain verification.
+//! Supports both CLI and API server modes.
+//!
 use axum::{extract::Json, http::StatusCode, response::IntoResponse, routing::post, Router};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -9,6 +13,10 @@ use nft::*;
 
 #[cfg(test)]
 mod tests;
+
+// ============================================================================
+// CLI Configuration
+// ============================================================================
 
 #[derive(Parser)]
 #[command(name = "habit-tracker")]
@@ -37,7 +45,10 @@ enum Commands {
     },
 }
 
-// API Request/Response types
+// ============================================================================
+// API Types
+// ============================================================================
+
 #[derive(Deserialize)]
 struct CreateNftRequest {
     habit: String,
@@ -46,7 +57,6 @@ struct CreateNftRequest {
     funding_value: u64,
 }
 
-// Request for broadcasting signed tx
 #[derive(Deserialize)]
 struct BroadcastNftRequest {
     signed_commit_hex: String,
@@ -82,26 +92,10 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
     }
 }
 
-// API handlers
-// async fn handle_create(
-//     Json(req): Json<CreateNftRequest>,
-// ) -> Result<ApiResponse, (StatusCode, String)> {
-//     tokio::task::spawn_blocking(move || {
-//         let btc = connect_bitcoin()?;
-//         create_nft(&btc, req.habit)
-//     })
-//     .await
-//     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-//     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+// ============================================================================
+// API Handlers
+// ============================================================================
 
-//     Ok(ApiResponse {
-//         success: true,
-//         message: "NFT created successfully".to_string(),
-//         data: None,
-//     })
-// }
-
-// Handler 1: Build unsigned transactions
 async fn handle_create_unsigned(
     Json(req): Json<CreateNftRequest>,
 ) -> Result<ApiResponse<UnsignedNftResponse>, (StatusCode, String)> {
@@ -119,7 +113,6 @@ async fn handle_create_unsigned(
     })
 }
 
-// Handler 2: Broadcast signed transactions
 async fn handle_broadcast_nft(
     Json(req): Json<BroadcastNftRequest>,
 ) -> Result<ApiResponse<BroadcastNftResponse>, (StatusCode, String)> {
@@ -138,7 +131,6 @@ async fn handle_broadcast_nft(
     })
 }
 
-// Handler: Build unsigned update transactions
 async fn handle_update_unsigned(
     Json(req): Json<UpdateNftRequest>,
 ) -> Result<ApiResponse<UnsignedUpdateResponse>, (StatusCode, String)> {
@@ -162,24 +154,6 @@ async fn handle_update_unsigned(
         data: Some(unsigned),
     })
 }
-
-// async fn handle_update(
-//     Json(req): Json<UpdateNftRequest>,
-// ) -> Result<ApiResponse, (StatusCode, String)> {
-//     tokio::task::spawn_blocking(move || {
-//         let btc = connect_bitcoin()?;
-//         update_nft(&btc, req.utxo)
-//     })
-//     .await
-//     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-//     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-//     Ok(ApiResponse {
-//         success: true,
-//         message: "NFT updated successfully".to_string(),
-//         data: None,
-//     })
-// }
 
 async fn handle_view(
     Json(req): Json<ViewNftRequest>,
@@ -210,7 +184,10 @@ async fn handle_view(
     })
 }
 
-// Server
+// ============================================================================
+// Server & CLI Runners
+// ============================================================================
+
 async fn run_server() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/nft/create/unsigned", post(handle_create_unsigned))
@@ -221,18 +198,14 @@ async fn run_server() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
-    println!("🚀 Habit Tracker API Server");
-    println!("📍 Running on http://127.0.0.1:3000");
-    println!("\n📝 API Endpoints:");
-    println!("   POST /api/nft/create/unsigned - Build unsigned tx to create");
-    println!("   POST /api/nft/update/unsigned - Build unsigned tx to update");
-    println!("   POST /api/nft/broadcast - Broadcast signed tx");
-    println!("   POST /api/nft/view - view an spell");
+
+    log::info!("Starting Habit Tracker API Server");
+    log::info!("Listening on http://127.0.0.1:3000");
+
     axum::serve(listener, app).await?;
     Ok(())
 }
 
-// CLI
 async fn run_cli(command: Commands) -> anyhow::Result<()> {
     let btc = connect_bitcoin()?;
 
