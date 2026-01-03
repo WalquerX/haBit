@@ -186,7 +186,7 @@ async fn handle_view(
 ) -> Result<ApiResponse<serde_json::Value>, (StatusCode, String)> {
     let utxo = req.utxo.clone();
 
-    let (habit_name, sessions) = tokio::task::spawn_blocking(move || {
+    let (habit_name, sessions, _) = tokio::task::spawn_blocking(move || {
         let (txid, _vout) = utxo
             .split_once(':')
             .ok_or_else(|| anyhow::anyhow!("Invalid UTXO format, expected txid:vout"))?;
@@ -237,10 +237,8 @@ async fn run_cli(command: Commands) -> anyhow::Result<()> {
     let btc = connect_bitcoin()?;
 
     match command {
-        Commands::Create { habit } => create_nft(&btc, habit),
-        Commands::Update { utxo } => {
-            update_nft(&btc, utxo).await
-        },
+        Commands::Create { habit } => create_nft(&btc, habit).map(|_| ()),
+        Commands::Update { utxo } => update_nft(&btc, utxo).await,
         Commands::View { utxo } => view_nft(&btc, utxo),
     }
 }

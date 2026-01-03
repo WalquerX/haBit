@@ -18,8 +18,7 @@ sha2 = "0.10"
 chrono = "0.4"
 base64 = "0.22"
 reqwest = { version = "0.11", features = ["json"] }
-# Added a small change to charms repo so to have testnet support in automated tests.
-charms-client = { git = "ssh://git@github.com/WalquerX/charms.git", branch = "add-regtest-support" }
+charms-client = "0.10.2"
 dirs = "5.0"
 tempfile = "3.8"
 
