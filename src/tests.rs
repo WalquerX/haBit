@@ -108,7 +108,7 @@ struct TestBitcoin {
 
 fn setup_test_bitcoin() -> anyhow::Result<TestBitcoin> {
     if env::var("TEMPDIR_ROOT").is_err() {
-        env::set_var("TEMPDIR_ROOT", "/dev/shm");
+        env::set_var("TEMPDIR_ROOT", "/tmp/");
     }
 
     // Require CHARMS_BIN to be set for tests
