@@ -8,3 +8,10 @@ contracts/*.wasm
 
 # Keep the directory
 !contracts/.gitkeep
+
+# Docker volumes
+docker/bitcoin/data/
+docker/mempool/data/
+
+# Docker compose override
+docker-compose.override.yml

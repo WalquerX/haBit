@@ -681,7 +681,7 @@ fn app_assigns_correct_badges() {
         .expect("Session 1 should have badges field");
 
     assert_eq!(badges_1.len(), 1, "Session 1 should have 1 badge");
-    assert_eq!(badges_1[0].as_str().unwrap(), "First Strike");
+    assert_eq!(badges_1[0].as_str().unwrap(), "🌸 First Blood");
 }
 
 #[test]

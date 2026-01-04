@@ -114,36 +114,80 @@ pub(crate) fn validate_habit_logic(
     true
 }
 
-// Badge system combining Robin Sharma's habit formation + Samurai principles
+// Badge system - The Samurai Path to Mastery (66 Days)
+// Based on neuroscience (Robin Sharma) + Bushido philosophy
 fn get_badges_for_sessions(sessions: u64) -> Vec<String> {
     let mut badges = Vec::new();
 
+    // Stage 1: DESTRUCTION (Days 1-22) - Breaking Old Patterns
     if sessions >= 1 {
-        badges.push("First Strike".to_string()); // First step on the path
+        badges.push("🌸 First Blood".to_string());
+    }
+    if sessions >= 3 {
+        badges.push("⚔️ Three Cuts".to_string());
     }
     if sessions >= 7 {
-        badges.push("Week Warrior".to_string()); // 7 days of discipline
+        badges.push("🔥 Week Warrior".to_string());
     }
-    if sessions >= 21 {
-        badges.push("Path Beginner".to_string()); // 21-day habit initiation (Robin Sharma)
+    if sessions >= 11 {
+        badges.push("🌊 Rising Tide".to_string());
+    }
+    if sessions >= 15 {
+        badges.push("⛩️ Temple Guardian".to_string());
+    }
+    if sessions >= 22 {
+        badges.push("💥 Destruction Complete".to_string());
+    }
+
+    // Stage 2: INSTALLATION (Days 23-44) - Forging the New Way
+    if sessions >= 23 {
+        badges.push("🔨 The Forge Begins".to_string());
     }
     if sessions >= 30 {
-        badges.push("Moon Master".to_string()); // 30 days - lunar cycle
+        badges.push("🗡️ Month of Steel".to_string());
+    }
+    if sessions >= 33 {
+        badges.push("⚡ Thunder Strike".to_string());
+    }
+    if sessions >= 40 {
+        badges.push("🌙 Moonlit Path".to_string());
+    }
+    if sessions >= 44 {
+        badges.push("🎌 Installation Complete".to_string());
+    }
+
+    // Stage 3: INTEGRATION (Days 45-66) - Becoming the Master
+    if sessions >= 45 {
+        badges.push("🌅 Dawn of Mastery".to_string());
+    }
+    if sessions >= 50 {
+        badges.push("🏔️ Mountain Summit".to_string());
+    }
+    if sessions >= 55 {
+        badges.push("🐉 Dragon Awakens".to_string());
+    }
+    if sessions >= 60 {
+        badges.push("⭐ Celestial Alignment".to_string());
     }
     if sessions >= 66 {
-        badges.push("Habit Forged".to_string()); // 66 days - habit formation (Robin Sharma)
+        badges.push("👑 Shogun".to_string());
     }
-    if sessions >= 90 {
-        badges.push("Discipline Disciple".to_string()); // 90 days of mastery
-    }
+
+    // Beyond Mastery (Legendary Tier)
     if sessions >= 100 {
-        badges.push("Century Samurai".to_string()); // 100 days milestone
+        badges.push("💯 Century Samurai".to_string());
     }
-    if sessions >= 180 {
-        badges.push("Half-Year Hero".to_string()); // 6 months
+    if sessions >= 200 {
+        badges.push("🌸⚔️ Twin Blades".to_string());
     }
     if sessions >= 365 {
-        badges.push("Year of the Way".to_string()); // Full year - Bushido path
+        badges.push("🏯 Daimyo".to_string());
+    }
+    if sessions >= 500 {
+        badges.push("🔮 Mystic Warrior".to_string());
+    }
+    if sessions >= 1000 {
+        badges.push("⛩️👑 Living Legend".to_string());
     }
 
     badges
@@ -155,87 +199,165 @@ mod test {
 
     #[test]
     fn test_badge_progression() {
-        // Test badge milestones
+        // Test no badges at start
         assert_eq!(get_badges_for_sessions(0), Vec::<String>::new());
-        assert_eq!(get_badges_for_sessions(1), vec!["First Strike"]);
+        
+        // Stage 1: DESTRUCTION
+        assert_eq!(get_badges_for_sessions(1), vec!["🌸 First Blood"]);
         assert_eq!(
-            get_badges_for_sessions(7),
-            vec!["First Strike", "Week Warrior"]
+            get_badges_for_sessions(3),
+            vec!["🌸 First Blood", "⚔️ Three Cuts"]
         );
         assert_eq!(
-            get_badges_for_sessions(21),
-            vec!["First Strike", "Week Warrior", "Path Beginner"]
+            get_badges_for_sessions(7),
+            vec!["🌸 First Blood", "⚔️ Three Cuts", "🔥 Week Warrior"]
+        );
+        assert_eq!(
+            get_badges_for_sessions(22),
+            vec![
+                "🌸 First Blood",
+                "⚔️ Three Cuts",
+                "🔥 Week Warrior",
+                "🌊 Rising Tide",
+                "⛩️ Temple Guardian",
+                "💥 Destruction Complete"
+            ]
+        );
+        
+        // Stage 2: INSTALLATION
+        assert_eq!(
+            get_badges_for_sessions(23),
+            vec![
+                "🌸 First Blood",
+                "⚔️ Three Cuts",
+                "🔥 Week Warrior",
+                "🌊 Rising Tide",
+                "⛩️ Temple Guardian",
+                "💥 Destruction Complete",
+                "🔨 The Forge Begins"
+            ]
         );
         assert_eq!(
             get_badges_for_sessions(30),
-            vec!["First Strike", "Week Warrior", "Path Beginner", "Moon Master"]
-        );
-        assert_eq!(
-            get_badges_for_sessions(66),
             vec![
-                "First Strike",
-                "Week Warrior",
-                "Path Beginner",
-                "Moon Master",
-                "Habit Forged"
+                "🌸 First Blood",
+                "⚔️ Three Cuts",
+                "🔥 Week Warrior",
+                "🌊 Rising Tide",
+                "⛩️ Temple Guardian",
+                "💥 Destruction Complete",
+                "🔨 The Forge Begins",
+                "🗡️ Month of Steel"
             ]
         );
         assert_eq!(
-            get_badges_for_sessions(90),
-            vec![
-                "First Strike",
-                "Week Warrior",
-                "Path Beginner",
-                "Moon Master",
-                "Habit Forged",
-                "Discipline Disciple"
-            ]
+            get_badges_for_sessions(44).len(),
+            11 // All Destruction + All Installation badges
+        );
+        
+        // Stage 3: INTEGRATION
+        assert_eq!(
+            get_badges_for_sessions(45).len(),
+            12 // Previous + Dawn of Mastery
         );
         assert_eq!(
-            get_badges_for_sessions(365),
-            vec![
-                "First Strike",
-                "Week Warrior",
-                "Path Beginner",
-                "Moon Master",
-                "Habit Forged",
-                "Discipline Disciple",
-                "Century Samurai",
-                "Half-Year Hero",
-                "Year of the Way"
-            ]
+            get_badges_for_sessions(66).len(),
+            16 // All 3 stages complete
         );
+        
+        // Legendary Tier
+        assert_eq!(
+            get_badges_for_sessions(100).len(),
+            17 // All stages + Century Samurai
+        );
+        assert_eq!(
+            get_badges_for_sessions(365).len(),
+            19 // + Twin Blades + Daimyo
+        );
+        assert_eq!(
+            get_badges_for_sessions(1000).len(),
+            21 // All 21 badges
+        );
+    }
+
+    #[test]
+    fn test_stage_milestones() {
+        // Test key milestones for each stage
+        
+        // Destruction Complete (end of Stage 1)
+        let badges_22 = get_badges_for_sessions(22);
+        assert!(badges_22.contains(&"💥 Destruction Complete".to_string()));
+        assert_eq!(badges_22.len(), 6);
+        
+        // Installation Complete (end of Stage 2)
+        let badges_44 = get_badges_for_sessions(44);
+        assert!(badges_44.contains(&"🎌 Installation Complete".to_string()));
+        assert_eq!(badges_44.len(), 11);
+        
+        // Shogun (mastery achieved - end of Stage 3)
+        let badges_66 = get_badges_for_sessions(66);
+        assert!(badges_66.contains(&"👑 Shogun".to_string()));
+        assert_eq!(badges_66.len(), 16);
+        
+        // Living Legend (ultimate achievement)
+        let badges_1000 = get_badges_for_sessions(1000);
+        assert!(badges_1000.contains(&"⛩️👑 Living Legend".to_string()));
+        assert_eq!(badges_1000.len(), 21);
+    }
+
+    #[test]
+    fn test_legendary_tier() {
+        let badges_100 = get_badges_for_sessions(100);
+        assert!(badges_100.contains(&"💯 Century Samurai".to_string()));
+        
+        let badges_200 = get_badges_for_sessions(200);
+        assert!(badges_200.contains(&"🌸⚔️ Twin Blades".to_string()));
+        
+        let badges_365 = get_badges_for_sessions(365);
+        assert!(badges_365.contains(&"🏯 Daimyo".to_string()));
+        
+        let badges_500 = get_badges_for_sessions(500);
+        assert!(badges_500.contains(&"🔮 Mystic Warrior".to_string()));
+        
+        let badges_1000 = get_badges_for_sessions(1000);
+        assert!(badges_1000.contains(&"⛩️👑 Living Legend".to_string()));
     }
 
     #[test]
     fn test_habit_content_structure() {
         let content = HabitContent {
-            name: "Test Habit".to_string(),
-            description: "Test".to_string(),
+            name: "🗡️ Habit Tracker".to_string(),
+            description: "Path to mastery".to_string(),
             owner: "user123".to_string(),
-            habit_name: "Meditation".to_string(),
-            total_sessions: 5,
+            habit_name: "Morning Meditation".to_string(),
+            total_sessions: 7,
             created_at: Some(1000000),
             last_updated: Some(1000000),
-            badges: get_badges_for_sessions(5),
+            badges: get_badges_for_sessions(7),
         };
 
         // Verify structure
-        assert_eq!(content.total_sessions, 5);
-        assert_eq!(content.habit_name, "Meditation");
+        assert_eq!(content.total_sessions, 7);
+        assert_eq!(content.habit_name, "Morning Meditation");
         assert_eq!(content.owner, "user123");
-        assert_eq!(content.badges, vec!["First Strike"]);
+        
+        // Should have 3 badges at session 7
+        assert_eq!(content.badges.len(), 3);
+        assert!(content.badges.contains(&"🌸 First Blood".to_string()));
+        assert!(content.badges.contains(&"⚔️ Three Cuts".to_string()));
+        assert!(content.badges.contains(&"🔥 Week Warrior".to_string()));
+        
         assert!(content.created_at.is_some());
         assert!(content.last_updated.is_some());
     }
 
     #[test]
     fn test_min_update_interval_constant() {
-        // Verify the constant is set correctly for testing
-        assert!(MIN_UPDATE_INTERVAL_SECS >= 10, "Update interval too short for testing");
-        assert!(MIN_UPDATE_INTERVAL_SECS <= 300, "Update interval too long for quick testing");
+        // Verify the constant is set for testing (5 seconds)
+        // Production would use 86400 (24 hours)
+        assert_eq!(MIN_UPDATE_INTERVAL_SECS, 5);
         
-        println!("✓ MIN_UPDATE_INTERVAL_SECS = {} seconds", MIN_UPDATE_INTERVAL_SECS);
+        println!("✓ MIN_UPDATE_INTERVAL_SECS = {} seconds (testing mode)", MIN_UPDATE_INTERVAL_SECS);
     }
 
     #[test]
@@ -257,7 +379,7 @@ mod test {
 
         let output_too_soon = HabitContent {
             total_sessions: 6,
-            last_updated: Some(base_time + 30), // Only 30 seconds - TOO SOON!
+            last_updated: Some(base_time + 3), // Only 3 seconds - TOO SOON! (MIN is 5)
             badges: get_badges_for_sessions(6),
             ..input.clone()
         };
@@ -265,7 +387,7 @@ mod test {
         let result = validate_habit_logic(Some(input), output_too_soon);
         
         assert!(!result, "Should REJECT update that's too soon");
-        println!("✓ Correctly rejected update after only 30 seconds");
+        println!("✓ Correctly rejected update after only 3 seconds");
     }
 
     #[test]

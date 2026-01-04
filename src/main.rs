@@ -30,17 +30,17 @@ struct Cli {
 enum Commands {
     /// Create a new habit tracker NFT
     Create {
-        #[arg(short, long)]
+        #[arg(long)]
         habit: String,
     },
     /// Update NFT (increment session counter)
     Update {
-        #[arg(short, long)]
+        #[arg(long)]
         utxo: String,
     },
     /// View NFT details
     View {
-        #[arg(short, long)]
+        #[arg(long)]
         utxo: String,
     },
 }

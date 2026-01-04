@@ -1,0 +1,112 @@
+services:
+  bitcoin:
+    image: boltz/bitcoin-core:27.1
+    container_name: habit-tracker-bitcoin
+    command:
+      - -regtest
+      - -server
+      - -txindex
+      - -fallbackfee=0.0001
+      - -mempoolfullrbf=1
+      - -rpcuser=test
+      - -rpcpassword=test321
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -zmqpubrawblock=tcp://0.0.0.0:28332
+      - -zmqpubrawtx=tcp://0.0.0.0:28332
+      - -zmqpubhashtx=tcp://0.0.0.0:28332
+      - -zmqpubhashblock=tcp://0.0.0.0:28332
+      - -printtoconsole
+    ports:
+      - "18443:18443"
+      - "18444:18444"
+      - "28332:28332"
+    volumes:
+      - bitcoin_data:/root/.bitcoin
+      - ./docker/bitcoin/init.sh:/init.sh:ro
+    networks:
+      - habit-tracker-net
+    healthcheck:
+      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=test", "-rpcpassword=test321", "getblockchaininfo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bitcoin-init:
+    image: boltz/bitcoin-core:27.1
+    container_name: habit-tracker-bitcoin-init
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+    volumes:
+      - ./docker/bitcoin/init.sh:/init.sh:ro
+    networks:
+      - habit-tracker-net
+    entrypoint: ["/bin/sh", "/init.sh"]
+    restart: "no"
+
+  mempool-db:
+    image: mariadb:10.11
+    container_name: habit-tracker-mempool-db
+    environment:
+      MYSQL_DATABASE: mempool
+      MYSQL_USER: mempool
+      MYSQL_PASSWORD: mempool
+      MYSQL_ROOT_PASSWORD: admin
+    volumes:
+      - mempool_db:/var/lib/mysql
+    networks:
+      - habit-tracker-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mempool-api:
+    image: mempool/backend:latest
+    container_name: habit-tracker-mempool-api
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+      mempool-db:
+        condition: service_healthy
+    environment:
+      MEMPOOL_BACKEND: "none"
+      CORE_RPC_HOST: "bitcoin"
+      CORE_RPC_PORT: "18443"
+      CORE_RPC_USERNAME: "test"
+      CORE_RPC_PASSWORD: "test321"
+      DATABASE_ENABLED: "true"
+      DATABASE_HOST: "mempool-db"
+      DATABASE_DATABASE: "mempool"
+      DATABASE_USERNAME: "mempool"
+      DATABASE_PASSWORD: "mempool"
+      STATISTICS_ENABLED: "true"
+    volumes:
+      - ./docker/mempool/backend-config.json:/backend/mempool-config.json:ro
+    networks:
+      - habit-tracker-net
+    restart: unless-stopped
+
+  mempool-web:
+    image: mempool/frontend:latest
+    container_name: habit-tracker-mempool-web
+    depends_on:
+      - mempool-api
+    ports:
+      - "8080:8080"
+    environment:
+      FRONTEND_HTTP_PORT: "8080"
+      BACKEND_MAINNET_HTTP_HOST: "mempool-api"
+    networks:
+      - habit-tracker-net
+    restart: unless-stopped
+
+networks:
+  habit-tracker-net:
+    driver: bridge
+
+volumes:
+  bitcoin_data:
+  mempool_db:
