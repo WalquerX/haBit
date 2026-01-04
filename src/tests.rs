@@ -115,7 +115,7 @@ fn setup_test_bitcoin() -> anyhow::Result<TestBitcoin> {
     env::var("CHARMS_BIN").expect(
         "CHARMS_BIN environment variable must be set for tests.\n\
          Set it with: export CHARMS_BIN=/path/to/charms\n\
-        "
+        ",
     );
 
     let mut conf = Conf::default();

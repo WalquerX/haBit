@@ -320,9 +320,8 @@ pub fn extract_nft_metadata(btc: &Client, txid: &str) -> anyhow::Result<(String,
 // Prover Integration
 // ============================================================================
 
-
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 fn find_charms_binary() -> anyhow::Result<PathBuf> {
     // 1. Check environment variable first (highest priority)
@@ -374,7 +373,7 @@ pub fn prove_with_cli(
     spell_file.write_all(serde_json::to_string_pretty(spell)?.as_bytes())?;
     let spell_path = spell_file.path().to_str().unwrap();
 
-       // Locate charms binary - REPLACED SECTION
+    // Locate charms binary - REPLACED SECTION
     let charms_bin = find_charms_binary()?;
     log::debug!("Using charms binary: {:?}", charms_bin);
 

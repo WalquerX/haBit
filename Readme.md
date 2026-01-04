@@ -2,6 +2,18 @@
 
 A Bitcoin NFT-based habit tracker built with [Charms Protocol](https://github.com/CharmsDev/charms), inspired by the Way of the Warrior and the science of habit formation.
 
+## 🎯 What We Built
+
+A Bitcoin NFT habit tracker that combines:
+- ✅ **Fully functional smart contract** with comprehensive test coverage
+- ✅ **CLI tool for flow testing**
+- ✅ **66-day gamification** system with 25 achievement badges
+- ✅ **Docker development environment** with Mempool integration
+- ✅ **RESTful API** for frontend integration
+- ✅ **Robust testing infrastructure** using `corepc-node` for regtest integration tests
+
+**Current Status:** Alpha - Core functionality complete and tested
+
 ## 🎯 The Philosophy
 
 ### The Way of the Warrior
