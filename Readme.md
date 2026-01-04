@@ -228,6 +228,15 @@ cargo run -- create --habit "Daily Exercise"
 
 Search for the txid in Mempool explorer to see your NFT creation transaction with all the on-chain data!
 
+## Example result (On Testnet4)
+
+```
+## nft 0 sessions
+cargo run -- view --utxo 95ba0ec753501d3378e10f1516e161d8021e09b7b47a5c06470755224a10d812
+
+## nft 1 session
+charms tx show-spell --tx $(bitcoin-cli -testnet4 getrawtransaction 6c513b09b4401acd9cc9c0da6f9f2d2b0e82fbadd786bfda9a9041454824bb07) --mock
+```
 ## 🧪 Development
 
 ### Running Tests
