@@ -106,27 +106,27 @@ fn get_badges_for_sessions(sessions: u64) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ProverBackend {
-    _Http,
-    CliMock,
-}
+// #[derive(Debug, Clone, Copy, PartialEq)]
+// pub enum ProverBackend {
+//     _Http,
+//     CliMock,
+// }
 
-impl ProverBackend {
-    pub fn _auto_detect(btc: &Client) -> anyhow::Result<Self> {
-        let info = btc.get_blockchain_info()?;
-        match info.chain {
-            bitcoincore_rpc::bitcoin::Network::Regtest => {
-                println!("Detected regtest - using CLI mock mode");
-                Ok(ProverBackend::CliMock)
-            }
-            _ => {
-                println!("Detected {} - using HTTP API", info.chain);
-                Ok(ProverBackend::_Http)
-            }
-        }
-    }
-}
+// impl ProverBackend {
+//     pub fn _auto_detect(btc: &Client) -> anyhow::Result<Self> {
+//         let info = btc.get_blockchain_info()?;
+//         match info.chain {
+//             bitcoincore_rpc::bitcoin::Network::Regtest => {
+//                 println!("Detected regtest - using CLI mock mode");
+//                 Ok(ProverBackend::CliMock)
+//             }
+//             _ => {
+//                 println!("Detected {} - using HTTP API", info.chain);
+//                 Ok(ProverBackend::_Http)
+//             }
+//         }
+//     }
+// }
 
 /// Get the path to the compiled contract WASM
 pub fn get_contract_path() -> std::path::PathBuf {
