@@ -55,6 +55,13 @@ make contract
 # Set environment variables
 export USE_DOCKER=1
 export RUST_LOG=info
+
+# Set path to charms binary
+# Option 1: If charms is installed in your PATH
+export CHARMS_BIN=$(which charms)
+
+# Option 2: If you built charms locally, adjust path as needed
+# export CHARMS_BIN="$HOME/path/to/charms/target/release/charms"
 ```
 
 ### 3. Begin Your Journey

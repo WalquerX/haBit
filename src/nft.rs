@@ -320,6 +320,46 @@ pub fn extract_nft_metadata(btc: &Client, txid: &str) -> anyhow::Result<(String,
 // Prover Integration
 // ============================================================================
 
+
+use std::path::PathBuf;
+use std::env;
+
+fn find_charms_binary() -> anyhow::Result<PathBuf> {
+    // 1. Check environment variable first (highest priority)
+    if let Ok(custom_path) = env::var("CHARMS_BIN") {
+        let path = PathBuf::from(custom_path);
+        if path.exists() {
+            return Ok(path);
+        }
+        anyhow::bail!("CHARMS_BIN set to {:?} but binary not found", path);
+    }
+
+    // 2. Check if charms is in PATH
+    if let Ok(output) = Command::new("which").arg("charms").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(PathBuf::from(path));
+            }
+        }
+    }
+
+    // 3. Fall back to local dev path
+    if let Some(home) = dirs::home_dir() {
+        let local_path = home.join("BOS/charms/target/release/charms");
+        if local_path.exists() {
+            return Ok(local_path);
+        }
+    }
+
+    anyhow::bail!(
+        "charms binary not found. Try one of:\n\
+         - Set CHARMS_BIN=/path/to/charms\n\
+         - Add charms to your PATH\n\
+         - Build locally: cd ~/BOS/charms && cargo build --release"
+    )
+}
+
 pub fn prove_with_cli(
     spell: &serde_json::Value,
     contract_path: &str,
@@ -334,17 +374,9 @@ pub fn prove_with_cli(
     spell_file.write_all(serde_json::to_string_pretty(spell)?.as_bytes())?;
     let spell_path = spell_file.path().to_str().unwrap();
 
-    // Locate charms binary
-    let charms_bin = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("No home dir"))?
-        .join("BOS/charms/target/release/charms");
-
-    if !charms_bin.exists() {
-        anyhow::bail!(
-            "Local charms binary not found at {:?}\nBuild it: cd ~/BOS/charms && cargo build --release",
-            charms_bin
-        );
-    }
+       // Locate charms binary - REPLACED SECTION
+    let charms_bin = find_charms_binary()?;
+    log::debug!("Using charms binary: {:?}", charms_bin);
 
     // Convert contract_path to absolute path
     let absolute_contract_path = std::fs::canonicalize(contract_path)?;
